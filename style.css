@@ -1,0 +1,103 @@
+/* Asymmetric Bottom-Corner Fade Blended UI & Executive Aesthetics */
+
+@keyframes pulseSubtle {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.65; }
+}
+
+@keyframes floatSmooth {
+    0%, 100% { transform: translateY(0px); }
+    50% { transform: translateY(-5px); }
+}
+
+@keyframes scanLine {
+    0% { top: 0%; opacity: 0.9; }
+    50% { opacity: 1; }
+    100% { top: 98%; opacity: 0.9; }
+}
+
+.animate-pulse-subtle {
+    animation: pulseSubtle 2s infinite ease-in-out;
+}
+
+.animate-float {
+    animation: floatSmooth 4.5s infinite ease-in-out;
+}
+
+.animate-scan {
+    position: absolute;
+    left: 0;
+    right: 0;
+    height: 3px;
+    background: linear-gradient(90deg, transparent, #10b981, #34d399, #10b981, transparent);
+    box-shadow: 0 0 24px 6px rgba(16, 185, 129, 0.65);
+    animation: scanLine 2s infinite linear alternate;
+}
+
+/* Custom Scrollbar */
+::-webkit-scrollbar {
+    width: 4px;
+    height: 4px;
+}
+
+::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+    background: #cbd5e1;
+    border-radius: 9999px;
+}
+
+/* 
+ * Professional Corner Fade Card:
+ * Solid glass at top-left, fading out and dissolving into the ambient background at the bottom-right corner!
+ */
+.blended-glass-card {
+    background: linear-gradient(135deg, rgba(255, 255, 255, 0.96) 0%, rgba(255, 255, 255, 0.82) 55%, rgba(255, 255, 255, 0.25) 100%);
+    backdrop-filter: blur(40px);
+    -webkit-backdrop-filter: blur(40px);
+    border-radius: 36px;
+    border-top: 1.5px solid rgba(255, 255, 255, 0.95);
+    border-left: 1.5px solid rgba(255, 255, 255, 0.9);
+    border-right: 1px solid rgba(255, 255, 255, 0.35);
+    border-bottom: 1px solid rgba(16, 185, 129, 0.15);
+    box-shadow: 
+        0 30px 60px -15px rgba(15, 23, 42, 0.08),
+        0 15px 35px -10px rgba(16, 185, 129, 0.1),
+        inset 1px 1px 2px rgba(255, 255, 255, 0.9),
+        inset -10px -10px 30px rgba(16, 185, 129, 0.04);
+    transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* Blended Interactive Dropzone */
+.blended-dropzone {
+    background: linear-gradient(135deg, rgba(248, 250, 252, 0.85) 0%, rgba(241, 245, 249, 0.35) 100%);
+    border: 1.5px dashed rgba(203, 213, 225, 0.85);
+    border-radius: 28px;
+    transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.blended-dropzone:hover {
+    background: linear-gradient(135deg, rgba(236, 253, 245, 0.75) 0%, rgba(209, 250, 229, 0.25) 100%);
+    border-color: rgba(16, 185, 129, 0.65);
+    box-shadow: 0 10px 25px -5px rgba(16, 185, 129, 0.08);
+}
+
+/* Segmented Control Blended */
+.segmented-control {
+    background: rgba(241, 245, 249, 0.82);
+    backdrop-filter: blur(12px);
+    padding: 5px;
+    border-radius: 24px;
+    border: 1px solid rgba(255, 255, 255, 0.85);
+}
+
+.fade-in {
+    animation: fadeIn 0.35s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; transform: translateY(10px) scale(0.98); }
+    to { opacity: 1; transform: translateY(0) scale(1); }
+}

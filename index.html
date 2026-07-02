@@ -1,0 +1,291 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AWS FloraSense | AI Flower Detection Studio</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        primary: '#0F172A',
+                        accent: '#10B981',
+                        subtle: '#64748B'
+                    }
+                }
+            }
+        }
+    </script>
+    <!-- FontAwesome for Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">
+    <!-- Custom CSS -->
+    <link rel="stylesheet" href="style.css">
+</head>
+<body class="bg-gradient-to-br from-emerald-50/60 via-slate-50 to-teal-50/50 text-slate-800 min-h-screen font-['Plus_Jakarta_Sans'] antialiased selection:bg-emerald-500 selection:text-white pb-12 relative overflow-x-hidden">
+
+    <!-- Softly Faded Ambient Mesh Background (Balanced for Mobile Screens) -->
+    <div class="fixed inset-0 pointer-events-none z-0 overflow-hidden">
+        <div class="absolute -top-[10%] -left-[10%] w-[480px] h-[480px] bg-gradient-to-br from-emerald-400/20 to-teal-400/15 rounded-full blur-[110px] animate-pulse"></div>
+        <div class="absolute top-[35%] -right-[10%] w-[440px] h-[440px] bg-gradient-to-tl from-teal-400/20 to-cyan-400/15 rounded-full blur-[115px]"></div>
+        <div class="absolute -bottom-[10%] left-[15%] w-[480px] h-[480px] bg-gradient-to-tr from-emerald-500/20 via-lime-400/12 to-teal-400/18 rounded-full blur-[120px] animate-pulse"></div>
+    </div>
+
+    <!-- App Header (Minimal Executive Navigation Bar) -->
+    <header class="bg-white/75 border-b border-slate-200/50 sticky top-0 z-40 backdrop-blur-2xl transition-all">
+        <div class="max-w-md mx-auto px-4 h-16 flex items-center justify-center">
+            <div class="flex items-center space-x-3 cursor-pointer active:scale-95 transition duration-200" onclick="resetToUpload()">
+                <div class="w-9 h-9 rounded-2xl bg-gradient-to-tr from-emerald-600 via-emerald-500 to-teal-400 text-white flex items-center justify-center shadow-md shadow-emerald-500/25">
+                    <i class="fa-solid fa-seedling text-sm"></i>
+                </div>
+                <span class="text-xl font-extrabold tracking-tight bg-clip-text text-transparent bg-gradient-to-r from-slate-900 via-slate-800 to-emerald-900">AWS FloraSense</span>
+            </div>
+        </div>
+    </header>
+
+    <!-- Mobile-First Main Container -->
+    <main class="max-w-md mx-auto px-4 pt-7 space-y-6 relative z-10">
+
+        <!-- Clean App Title & Description -->
+        <div class="text-center space-y-1.5 py-1">
+            <h2 class="text-2xl sm:text-3xl font-black text-slate-900 tracking-tight">
+                AI Flower Detection Studio
+            </h2>
+            <p class="text-xs sm:text-sm text-slate-500 max-w-xs mx-auto leading-relaxed font-medium">
+                Instantly identify flower species and count blooms with precision.
+            </p>
+        </div>
+
+        <!-- Single Blended Organic Glass Master Card -->
+        <div class="blended-glass-card p-5 sm:p-7 relative overflow-hidden min-h-[400px] flex flex-col justify-between">
+            
+            <!-- VIEW 1: UPLOAD & CAMERA PHASE -->
+            <div id="view-upload" class="fade-in space-y-6 my-auto">
+                
+                <!-- Native Segmented Control: File vs Camera -->
+                <div class="segmented-control grid grid-cols-2 gap-1 shadow-inner">
+                    <button type="button" onclick="showDropZoneMode()" id="tab-file-btn" class="py-3 px-3 rounded-2xl bg-gradient-to-r from-emerald-600 to-teal-600 text-white font-bold text-xs shadow-md shadow-emerald-500/25 flex items-center justify-center space-x-2 transition">
+                        <i class="fa-solid fa-image"></i>
+                        <span>Upload Photo</span>
+                    </button>
+                    <button type="button" onclick="startCameraMode()" id="tab-cam-btn" class="py-3 px-3 rounded-2xl text-slate-500 hover:text-slate-800 font-bold text-xs flex items-center justify-center space-x-2 transition">
+                        <i class="fa-solid fa-camera"></i>
+                        <span>Take Photo</span>
+                    </button>
+                </div>
+
+                <!-- Hidden Native Mobile Camera Input Fallback -->
+                <input type="file" id="native-camera-input" class="hidden" accept="image/*" capture="environment">
+
+                <!-- Interactive Blended Dropzone (File Upload Mode) -->
+                <div id="drop-zone" class="blended-dropzone p-8 text-center cursor-pointer relative group">
+                    <input type="file" id="file-input" class="hidden" accept="image/jpeg,image/png,image/webp">
+                    
+                    <!-- Initial State -->
+                    <div id="upload-prompt" class="space-y-3.5 py-4">
+                        <div class="w-14 h-14 rounded-2xl bg-white/90 border border-slate-200/80 shadow-md shadow-slate-200/50 flex items-center justify-center mx-auto text-emerald-600 text-xl group-hover:scale-110 group-hover:shadow-emerald-500/15 transition duration-300">
+                            <i class="fa-solid fa-cloud-arrow-up"></i>
+                        </div>
+                        <div>
+                            <p class="text-sm font-bold text-slate-800">Tap to select flower photo</p>
+                            <p class="text-[11px] text-slate-400 mt-1">Supports JPEG, PNG, WEBP</p>
+                        </div>
+                    </div>
+
+                    <!-- Preview State -->
+                    <div id="file-preview-state" class="hidden space-y-3">
+                        <div class="relative rounded-2xl overflow-hidden max-h-56 border border-slate-200/80 bg-slate-900 mx-auto shadow-inner">
+                            <img id="preview-image" src="" alt="Selected Flower Preview" class="w-full h-auto object-contain max-h-56 mx-auto">
+                            <button id="clear-file-btn" onclick="clearSelectedFile(event)" class="absolute top-2.5 right-2.5 w-8 h-8 rounded-full bg-white/95 text-slate-700 hover:bg-rose-600 hover:text-white transition flex items-center justify-center shadow text-xs">
+                                <i class="fa-solid fa-xmark"></i>
+                            </button>
+                        </div>
+                        <div class="flex items-center justify-between text-xs text-slate-600 bg-white/90 px-4 py-2.5 rounded-2xl border border-slate-200/80 shadow-xs">
+                            <span class="font-semibold truncate max-w-[190px]" id="file-name-display"></span>
+                            <span class="font-['JetBrains_Mono'] text-slate-400 text-[10px]" id="file-size-display"></span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- LIVE CAMERA CAPTURE MODE -->
+                <div id="camera-container" class="hidden space-y-3.5 border border-slate-200/80 rounded-3xl p-3.5 bg-slate-900 text-center shadow-xl">
+                    
+                    <!-- 1. Live Video Stream State -->
+                    <div id="camera-video-state" class="hidden space-y-3">
+                        <div class="relative rounded-2xl overflow-hidden bg-black max-h-60 flex items-center justify-center">
+                            <video id="live-video" autoplay playsinline class="w-full h-auto max-h-60 object-cover"></video>
+                            <canvas id="snapshot-canvas" class="hidden"></canvas>
+                            <div class="absolute top-2.5 left-2.5 px-2.5 py-1 rounded-md bg-rose-600 text-white text-[9px] font-bold tracking-wider flex items-center space-x-1.5 animate-pulse shadow">
+                                <span class="w-1.5 h-1.5 rounded-full bg-white"></span>
+                                <span>CAMERA ACTIVE</span>
+                            </div>
+                        </div>
+                        <div class="grid grid-cols-2 gap-2.5 pt-1">
+                            <button type="button" onclick="capturePhoto()" class="py-3.5 px-4 rounded-2xl bg-gradient-to-r from-emerald-600 to-teal-600 active:brightness-90 text-white font-bold text-xs shadow-md shadow-emerald-600/30 transition flex items-center justify-center space-x-2">
+                                <i class="fa-solid fa-camera"></i>
+                                <span>Snap Photo</span>
+                            </button>
+                            <button type="button" onclick="stopCameraMode()" class="py-3.5 px-4 rounded-2xl bg-slate-800 active:bg-slate-700 text-slate-300 font-semibold text-xs transition flex items-center justify-center space-x-1.5">
+                                <i class="fa-solid fa-xmark"></i>
+                                <span>Cancel</span>
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- 2. Permission Guidance / Mobile Native Fallback State -->
+                    <div id="camera-permission-state" class="py-6 px-4 space-y-4 bg-slate-950 rounded-2xl border border-slate-800">
+                        <div class="w-13 h-13 rounded-2xl bg-amber-500/10 border border-amber-500/30 text-amber-400 flex items-center justify-center mx-auto text-xl shadow">
+                            <i class="fa-solid fa-camera-rotate"></i>
+                        </div>
+                        <div class="space-y-1">
+                            <h4 class="text-sm font-bold text-white" id="cam-perm-title">Camera Permission Needed</h4>
+                            <p class="text-xs text-slate-400 leading-relaxed max-w-xs mx-auto" id="cam-perm-msg">
+                                To take a photo, allow camera access in browser settings or launch your phone's native camera app directly.
+                            </p>
+                        </div>
+                        <div class="space-y-2 pt-2">
+                            <button type="button" onclick="openNativePhoneCamera()" class="w-full py-3.5 px-4 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 text-white font-bold text-xs shadow-md shadow-emerald-600/25 flex items-center justify-center space-x-2">
+                                <i class="fa-solid fa-mobile-screen-button"></i>
+                                <span>Open Phone's Native Camera</span>
+                            </button>
+                            <button type="button" onclick="retryCameraAccess()" class="w-full py-3 px-4 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold text-xs flex items-center justify-center space-x-2">
+                                <i class="fa-solid fa-unlock-keyhole"></i>
+                                <span>Request Browser Permission Again</span>
+                            </button>
+                        </div>
+                    </div>
+
+                </div>
+
+                <!-- Action Button -->
+                <div>
+                    <button id="upload-btn" disabled onclick="handleImageUpload()" class="w-full py-4 px-6 rounded-2xl bg-slate-200 text-slate-400 font-extrabold text-xs sm:text-sm transition-all duration-300 flex items-center justify-center space-x-2.5 cursor-not-allowed">
+                        <i class="fa-solid fa-wand-magic-sparkles"></i>
+                        <span>Detect Flower & Count</span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- VIEW 2: ANIMATED SCANNER PHASE -->
+            <div id="view-loader" class="hidden fade-in py-8 my-auto space-y-6 text-center">
+                <!-- Scanning Image Box -->
+                <div class="relative w-48 h-48 mx-auto rounded-3xl overflow-hidden border-2 border-emerald-500/50 shadow-2xl bg-slate-900">
+                    <img id="loader-preview-image" src="" alt="Scanning" class="w-full h-full object-cover opacity-85">
+                    <!-- Laser Scanner Line -->
+                    <div class="animate-scan"></div>
+                    <div class="absolute inset-0 bg-emerald-500/10 backdrop-blur-[1px]"></div>
+                    <div class="absolute bottom-2.5 left-2.5 right-2.5 px-2.5 py-1.5 rounded-xl bg-black/75 backdrop-blur-md text-[10px] text-emerald-400 font-['JetBrains_Mono'] font-bold tracking-wider shadow">
+                        SCANNING BLOOMS
+                    </div>
+                </div>
+
+                <!-- Live Telemetry Status -->
+                <div class="space-y-3 max-w-xs mx-auto">
+                    <h4 class="text-sm font-extrabold text-slate-900 animate-pulse" id="loader-title">
+                        Uploading flower photo...
+                    </h4>
+                    <p class="text-[11px] font-['JetBrains_Mono'] text-slate-500" id="loader-subtitle">
+                        Connecting to cloud model...
+                    </p>
+
+                    <!-- Progress Bar -->
+                    <div class="w-full h-2 rounded-full bg-slate-100 overflow-hidden border border-slate-200/80 shadow-inner">
+                        <div id="loader-bar" class="h-full bg-gradient-to-r from-emerald-500 via-teal-500 to-emerald-600 rounded-full transition-all duration-300" style="width: 15%"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- VIEW 3: OUTPUT RESULTS PHASE -->
+            <div id="view-results" class="hidden fade-in space-y-5 my-auto">
+                <div class="flex items-center justify-between border-b border-slate-100 pb-3.5">
+                    <h3 class="text-xs font-extrabold text-slate-900 uppercase tracking-wider flex items-center space-x-1.5">
+                        <i class="fa-solid fa-circle-check text-emerald-600"></i>
+                        <span>Detection Result</span>
+                    </h3>
+                    <span class="inline-flex items-center px-2.5 py-0.5 rounded-md bg-gradient-to-r from-emerald-500/10 to-teal-500/10 text-emerald-700 text-[10px] font-bold border border-emerald-500/20">
+                        Verified
+                    </span>
+                </div>
+
+                <!-- Analyzed Photo Display -->
+                <div class="rounded-2xl overflow-hidden border border-slate-200/80 bg-slate-950 max-h-52 flex items-center justify-center shadow-inner relative">
+                    <img id="res-image-display" src="" alt="Analyzed Flower" class="w-full h-auto max-h-52 object-contain">
+                </div>
+
+                <!-- Exact 4 Requested Attributes Grid -->
+                <div class="grid grid-cols-2 gap-3">
+                    
+                    <!-- 1. Flower Name -->
+                    <div class="bg-gradient-to-br from-emerald-50/90 to-teal-50/50 border border-emerald-300/80 rounded-2xl p-4 space-y-1 shadow-sm">
+                        <span class="text-[10px] font-bold uppercase tracking-wider text-emerald-700 flex items-center space-x-1.5">
+                            <i class="fa-solid fa-tag text-emerald-600"></i>
+                            <span>Flower Name</span>
+                        </span>
+                        <p id="out-flower-name" class="text-base sm:text-lg font-black text-slate-900 truncate">
+                            Rose
+                        </p>
+                    </div>
+
+                    <!-- 2. Flower Count -->
+                    <div class="bg-gradient-to-br from-slate-50 to-white border border-slate-200/90 rounded-2xl p-4 space-y-1 shadow-sm">
+                        <span class="text-[10px] font-bold uppercase tracking-wider text-slate-500 flex items-center space-x-1.5">
+                            <i class="fa-solid fa-hashtag text-slate-400"></i>
+                            <span>Flower Count</span>
+                        </span>
+                        <p id="out-flower-count" class="text-base sm:text-lg font-black text-slate-900 font-['JetBrains_Mono']">
+                            1
+                        </p>
+                    </div>
+
+                    <!-- 3. Confidence -->
+                    <div class="bg-gradient-to-br from-slate-50 to-white border border-slate-200/90 rounded-2xl p-4 space-y-1 shadow-sm">
+                        <span class="text-[10px] font-bold uppercase tracking-wider text-slate-500 flex items-center space-x-1.5">
+                            <i class="fa-solid fa-bullseye text-slate-400"></i>
+                            <span>Confidence</span>
+                        </span>
+                        <p id="out-confidence" class="text-sm sm:text-base font-bold text-emerald-600 font-['JetBrains_Mono']">
+                            100.0%
+                        </p>
+                    </div>
+
+                    <!-- 4. Image ID -->
+                    <div class="bg-gradient-to-br from-slate-50 to-white border border-slate-200/90 rounded-2xl p-4 space-y-1 shadow-sm overflow-hidden">
+                        <span class="text-[10px] font-bold uppercase tracking-wider text-slate-500 flex items-center space-x-1.5">
+                            <i class="fa-solid fa-fingerprint text-slate-400"></i>
+                            <span>Image ID</span>
+                        </span>
+                        <p id="out-image-id" class="text-xs font-semibold text-slate-700 font-['JetBrains_Mono'] truncate" title="Image ID">
+                            flower.jpg
+                        </p>
+                    </div>
+
+                </div>
+
+                <!-- Action: Analyze Another Photo -->
+                <div class="pt-1.5">
+                    <button onclick="resetToUpload()" class="w-full py-4 px-6 rounded-2xl bg-gradient-to-r from-slate-900 to-slate-800 active:brightness-90 text-white font-bold text-xs sm:text-sm transition-all duration-200 flex items-center justify-center space-x-2 shadow-lg shadow-slate-900/20">
+                        <i class="fa-solid fa-arrow-rotate-left"></i>
+                        <span>Scan Another Photo</span>
+                    </button>
+                </div>
+            </div>
+
+        </div>
+
+    </main>
+
+    <!-- Professional Footer -->
+    <footer class="mt-12 text-center text-[11px] text-slate-400 font-medium tracking-wide relative z-10">
+        <p>&copy; 2026 AWS FloraSense. All rights reserved.</p>
+    </footer>
+
+    <!-- Scripts -->
+    <script src="script.js"></script>
+</body>
+</html>
