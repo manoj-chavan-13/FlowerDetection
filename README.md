@@ -8,7 +8,7 @@
 ![Tailwind CSS](https://img.shields.io/badge/Tailwind-CSS-38B2AC?style=for-the-badge&logo=tailwind-css&logoColor=white)
 ![AWS Serverless](https://img.shields.io/badge/AWS-Serverless_Pipeline-FF9900?style=for-the-badge&logo=amazon-aws&logoColor=white)
 
-**An ultra-modern, serverless, mobile-first botanical recognition application powered by Amazon Rekognition, AWS Lambda, S3, and DynamoDB.**
+**An ultra-modern, serverless, mobile-first botanical recognition application powered by Amazon Rekognition, AWS Lambda, and S3 (`input/`, `text/`, `output/` folders).**
 
 ---
 
@@ -31,7 +31,7 @@
 ```
 [ Mobile Frontend / Flask API ]
              │
-             ├── (POST /api/upload) ──> [ AWS S3 Bucket: flowers-images-for-demo ]
+             ├── (POST /api/upload) ──> [ AWS S3 Bucket: input/ folder ]
              │                                       │
              │                                (S3 PutEvent Trigger)
              │                                       ▼
@@ -40,15 +40,14 @@
              │                          (Amazon Rekognition API)
              │                                       │
              │                                       ▼
-             └── (GET /api/results) <── [ AWS DynamoDB: FlowerDetectionResults ]
+             └── (GET /api/results) <── [ AWS S3 Bucket: text/ (.txt) & output/ (.mp3) ]
 ```
 
 ### 🌍 AWS Environment Details
 * **Region**: `ap-south-1` (Asia Pacific - Mumbai)
-* **Storage Bucket (`S3`)**: Direct root-level storage (`flowers-images-for-demo`)
+* **Storage Bucket (`S3`)**: Multi-folder pipeline (`input/`, `text/`, `output/`)
 * **AI Analysis Engine**: **Amazon Rekognition** (`DetectLabels` API)
 * **Serverless Execution**: **AWS Lambda** (`FlowerProcessingLambda` on Python 3.12)
-* **NoSQL Database**: **Amazon DynamoDB** (`FlowerDetectionResults` table, Partition Key: `imageId`)
 
 ---
 
@@ -66,7 +65,7 @@ When an image is processed, the system outputs precisely 4 verified biometric at
 
 ### Prerequisites
 * **Python 3.9+** installed locally.
-* **AWS CLI** configured (`aws configure`) with access to S3, Rekognition, and DynamoDB.
+* **AWS CLI** configured (`aws configure`) with access to S3 and Rekognition.
 
 ### 1. Clone the Repository
 ```bash
@@ -100,7 +99,7 @@ Visit `http://localhost:5000` in your web browser or mobile phone connected to y
 FlowerDetectionProject/
 ├── app.py             # Flask API Server & AWS SDK Controller
 ├── index.html         # Single-Page Mobile Native Interface
-├── script.js          # Camera Controller & DynamoDB Polling Client
+├── script.js          # Camera Controller & S3 Polling Client
 ├── style.css          # Glassmorphic Utilities & Scan Animations
 ├── requirements.txt   # Python Dependencies (flask, boto3, dotenv)
 ├── .env.example       # Environment Variables Template

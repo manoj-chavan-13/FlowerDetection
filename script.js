@@ -258,7 +258,7 @@ function updateLoaderStep(title, subtitle, progressPercent) {
     document.getElementById('loader-bar').style.width = `${progressPercent}%`;
 }
 
-// Poll DynamoDB Table populated by AWS Lambda
+// Poll S3 folders populated by AWS Lambda
 function startPollingResults(imageId) {
     if (pollingInterval) clearInterval(pollingInterval);
     
@@ -268,7 +268,7 @@ function startPollingResults(imageId) {
     pollingInterval = setInterval(async () => {
         attempts++;
         if (attempts === 2) {
-            updateLoaderStep('Identifying Species & Counting...', 'Querying DynamoDB record...', 85);
+            updateLoaderStep('Analyzing Blooms & Generating Voice...', 'Checking S3 output & audio folders...', 85);
         }
 
         try {
@@ -277,7 +277,7 @@ function startPollingResults(imageId) {
 
             if (data.success && data.status === 'completed' && data.data) {
                 clearInterval(pollingInterval);
-                updateLoaderStep('Detection Verified!', 'Rendering output...', 100);
+                updateLoaderStep('Detection & Audio Ready!', 'Rendering output...', 100);
                 setTimeout(() => {
                     displayAnalysisResults(data.data);
                 }, 350);
@@ -294,13 +294,53 @@ function startPollingResults(imageId) {
 function displayAnalysisResults(item) {
     switchView(viewResults);
 
-    // Populate exact 4 requested output attributes
-    document.getElementById('out-flower-name').textContent = item.flowerName || 'Detected Flower';
-    document.getElementById('out-flower-count').textContent = item.flowerCount !== undefined ? item.flowerCount : 1;
-    document.getElementById('out-confidence').textContent = `${parseFloat(item.confidence || 100.0).toFixed(1)}%`;
-    document.getElementById('out-image-id').textContent = item.imageId || currentImageId;
-    
+    // Populate parsed attributes
+    const nameEl = document.getElementById('out-flower-name');
+    if (nameEl) nameEl.textContent = item.flowerName || 'Detected Flower';
+
+    const colorEl = document.getElementById('out-flower-color');
+    if (colorEl) colorEl.textContent = item.flowerColor || 'N/A';
+
+    const conditionEl = document.getElementById('out-flower-condition');
+    if (conditionEl) conditionEl.textContent = item.flowerCondition || 'Fresh';
+
+    const countEl = document.getElementById('out-flower-count');
+    if (countEl) countEl.textContent = item.flowerCount !== undefined ? item.flowerCount : 1;
+
+    const confEl = document.getElementById('out-confidence');
+    if (confEl) confEl.textContent = `${parseFloat(item.confidence || 100.0).toFixed(1)}%`;
+
     // Display the uploaded image cleanly
     const imgEl = document.getElementById('res-image-display');
-    imgEl.src = `/api/image/${encodeURIComponent(item.imageId || currentImageId)}`;
+    if (imgEl) imgEl.src = `/api/image/${encodeURIComponent(item.imageId || currentImageId)}`;
+
+    // Populate raw text analysis summary (without "Thank you" as requested)
+    const rawTextEl = document.getElementById('out-raw-text');
+    if (rawTextEl) {
+        const defaultText = `Flower Analysis Result.\n\nFlower Name : ${item.flowerName || 'Detected Flower'}\n\nFlower Color : ${item.flowerColor || 'N/A'}\n\nFlower Condition : ${item.flowerCondition || 'Fresh'}`;
+        rawTextEl.textContent = item.rawText || defaultText;
+    }
+
+    // Load and play mp3 audio from audio/ folder
+    const audioEl = document.getElementById('result-audio-player');
+    if (audioEl) {
+        audioEl.src = `/api/audio/${encodeURIComponent(item.imageId || currentImageId)}`;
+        audioEl.load();
+        
+        setTimeout(() => {
+            audioEl.play().catch(err => {
+                console.log("Audio autoplay blocked until user interaction:", err);
+            });
+        }, 500);
+    }
+}
+
+// Play Voice Assistant Audio
+function playResultAudio() {
+    const audioEl = document.getElementById('result-audio-player');
+    if (audioEl) {
+        audioEl.play().catch(err => {
+            alert("Unable to play audio: " + err.message);
+        });
+    }
 }
