@@ -17,6 +17,7 @@ CORS(app)
 # AWS Configuration loaded from .env
 AWS_REGION = os.environ.get("AWS_DEFAULT_REGION", "ap-south-1")
 S3_BUCKET = os.environ.get("S3_BUCKET", "flowers-images-for-demo")
+TABLE_NAME = os.environ.get("TABLE_NAME", "FlowerDetectionResults")
 AWS_ACCESS_KEY = os.environ.get("AWS_ACCESS_KEY_ID")
 AWS_SECRET_KEY = os.environ.get("AWS_SECRET_ACCESS_KEY")
 
@@ -223,4 +224,6 @@ def get_audio_proxy(image_id):
     return jsonify({"error": f"Audio file (.mp3) not found in S3 output/ or audio/ folder for: {clean_id}"}), 404
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000, debug=True)
+    port = int(os.environ.get("FLASK_PORT", 5000))
+    debug_mode = os.environ.get("FLASK_DEBUG", "True").lower() in ["true", "1", "yes"]
+    app.run(host="0.0.0.0", port=port, debug=debug_mode)

@@ -7,6 +7,7 @@
 ![Flask](https://img.shields.io/badge/Flask-Backend-000000?style=for-the-badge&logo=flask&logoColor=white)
 ![Tailwind CSS](https://img.shields.io/badge/Tailwind-CSS-38B2AC?style=for-the-badge&logo=tailwind-css&logoColor=white)
 ![AWS Serverless](https://img.shields.io/badge/AWS-Serverless_Pipeline-FF9900?style=for-the-badge&logo=amazon-aws&logoColor=white)
+![Docker](https://img.shields.io/badge/Docker-Containerized-2496ED?style=for-the-badge&logo=docker&logoColor=white)
 
 **An ultra-modern, serverless, mobile-first botanical recognition application powered by Amazon Rekognition, AWS Lambda, and S3 (`input/`, `text/`, `output/` folders).**
 
@@ -93,6 +94,38 @@ Visit `http://localhost:5000` in your web browser or mobile phone connected to y
 
 ---
 
+## 🐳 Docker Deployment
+
+Run **AWS FloraSense** in an isolated, lightweight container environment using Docker or Docker Compose.
+
+### Option A: Using Docker Compose (Recommended)
+Ensure your `.env` file is configured with your AWS credentials, then launch the service:
+```bash
+docker compose up -d --build
+```
+Access the application at `http://localhost:5000`. To stop the application:
+```bash
+docker compose down
+```
+
+### Option B: Using Standalone Docker CLI
+1. **Build the image**:
+   ```bash
+   docker build -t florasense:latest .
+   ```
+2. **Run the container**:
+   ```bash
+   docker run -d -p 5000:5000 --env-file .env --name florasense-app florasense:latest
+   ```
+
+### Option C: Run Directly from Docker Hub
+You can run the published image directly without cloning or building locally:
+```bash
+docker run -d -p 5000:5000 --env-file .env --name florasense-app manojc13/florasense:latest
+```
+
+---
+
 ## 📁 Project Directory Structure
 
 ```text
@@ -102,6 +135,9 @@ FlowerDetectionProject/
 ├── script.js          # Camera Controller & S3 Polling Client
 ├── style.css          # Glassmorphic Utilities & Scan Animations
 ├── requirements.txt   # Python Dependencies (flask, boto3, dotenv)
+├── Dockerfile         # Production-Grade Lightweight Python Container
+├── docker-compose.yml # Docker Compose Orchestration Config
+├── .dockerignore      # Exclusions for Docker Build Context
 ├── .env.example       # Environment Variables Template
 └── .gitignore         # Security exclusions for .env & cache
 ```
