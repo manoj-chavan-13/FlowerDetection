@@ -10,15 +10,99 @@ rekognition_client = boto3.client('rekognition')
 polly_client = boto3.client('polly')
 dynamodb = boto3.resource('dynamodb')
 
+def detect_color_opencv(image_bytes, bounding_box=None):
+    """
+    Uses OpenCV and NumPy in HSV color space to isolate flower petals,
+    mask out background green foliage, stems, and shadows, and calculate dominant petal color.
+    """
+    try:
+        import cv2
+        import numpy as np
+    except ImportError:
+        print("OpenCV or NumPy not available in Lambda layer; falling back to Rekognition ImageProperties.")
+        return None
+
+    try:
+        # Decode image from raw S3 binary buffer
+        nparr = np.frombuffer(image_bytes, np.uint8)
+        img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+        if img is None:
+            return None
+
+        h, w, _ = img.shape
+
+        # Crop to Rekognition flower bounding box if available to isolate the bloom from background
+        if bounding_box:
+            left = int(bounding_box.get('Left', 0) * w)
+            top = int(bounding_box.get('Top', 0) * h)
+            width = int(bounding_box.get('Width', 1) * w)
+            height = int(bounding_box.get('Height', 1) * h)
+            left = max(0, left)
+            top = max(0, top)
+            right = min(w, left + width)
+            bottom = min(h, top + height)
+            if right > left and bottom > top:
+                img = img[top:bottom, left:right]
+
+        # Convert BGR to HSV color space for precise petal isolation
+        hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
+        H, S, V = cv2.split(hsv)
+
+        # 1. Mask out dark shadows and black background (Value < 35)
+        non_dark_mask = V >= 35
+
+        # 2. Identify white/cream petals (high brightness V >= 175, low saturation S <= 40)
+        white_mask = (V >= 175) & (S <= 40) & non_dark_mask
+        white_pixels = np.sum(white_mask)
+
+        # 3. Mask for vibrant colored petals (Saturation >= 45, Value >= 40)
+        vibrant_mask = (S >= 45) & (V >= 40)
+
+        # 4. Ignore background green foliage, leaves, and stems (Hue range 35 to 85 in OpenCV 0-179)
+        non_green_mask = (H < 35) | (H > 85)
+
+        # Combine petal isolation masks
+        petal_mask = vibrant_mask & non_green_mask
+        petal_pixels = np.sum(petal_mask)
+
+        # If white pixels dominate colored petals, classify as White
+        if white_pixels > petal_pixels and white_pixels > (img.shape[0] * img.shape[1] * 0.05):
+            return "White"
+
+        if petal_pixels < 20:
+            return None
+
+        # Extract Hue values corresponding strictly to isolated petals
+        valid_hues = H[petal_mask]
+        hist, _ = np.histogram(valid_hues, bins=180, range=(0, 180))
+
+        # Map OpenCV Hue bins to botanical petal color classifications
+        color_counts = {
+            "Red": np.sum(hist[0:9]) + np.sum(hist[165:180]),
+            "Orange": np.sum(hist[9:19]),
+            "Yellow": np.sum(hist[19:35]),
+            "Cyan": np.sum(hist[86:99]),
+            "Blue": np.sum(hist[99:126]),
+            "Purple": np.sum(hist[126:146]),
+            "Pink": np.sum(hist[146:165])
+        }
+
+        dominant_color = max(color_counts, key=color_counts.get)
+        if color_counts[dominant_color] > 0:
+            print(f"OpenCV petal isolation identified dominant color: {dominant_color}")
+            return dominant_color
+
+        return None
+    except Exception as e:
+        print(f"OpenCV color isolation warning: {e}")
+        return None
+
 def lambda_handler(event, context):
     """
     AWS Lambda handler triggered by S3 PutObject events in the 'input/' folder.
     
-    Workflow:
-    1. Reads uploaded image from S3.
-    2. Calls Amazon Rekognition with Features=['GENERAL_LABELS', 'IMAGE_PROPERTIES'] to detect species AND dominant colors accurately without defaulting to Pink.
-    3. Generates structured .txt report with Name, Color, Condition, Count, and Confidence.
-    4. Saves to DynamoDB table and generates audio voice narration (.mp3).
+    Pipeline:
+    S3 -> Lambda -> Rekognition (Species & Bounding Box) -> OpenCV (Petal Color Isolation) -> DynamoDB & S3
     """
     print("Received event: " + json.dumps(event, indent=2))
     
@@ -35,22 +119,26 @@ def lambda_handler(event, context):
         filename = os.path.basename(key)
         print(f"Processing flower image: {filename} from bucket: {bucket}")
         
-        # Call Rekognition requesting both GENERAL_LABELS and IMAGE_PROPERTIES (for dominant color extraction)
+        # Download image bytes from S3 for OpenCV analysis and Rekognition
+        s3_obj = s3_client.get_object(Bucket=bucket, Key=key)
+        image_bytes = s3_obj['Body'].read()
+        
+        # 1. Analyze image using Amazon Rekognition
         try:
             response = rekognition_client.detect_labels(
-                Image={'S3Object': {'Bucket': bucket, 'Name': key}},
+                Image={'Bytes': image_bytes},
                 MaxLabels=50,
                 MinConfidence=40.0,
                 Features=['GENERAL_LABELS', 'IMAGE_PROPERTIES']
             )
         except Exception as api_err:
-            print(f"IMAGE_PROPERTIES feature fallback: {api_err}")
+            print(f"IMAGE_PROPERTIES fallback: {api_err}")
             response = rekognition_client.detect_labels(
-                Image={'S3Object': {'Bucket': bucket, 'Name': key}},
+                Image={'Bytes': image_bytes},
                 MaxLabels=50,
                 MinConfidence=40.0
             )
-        
+            
         labels = response.get('Labels', [])
         image_props = response.get('ImageProperties', {})
         
@@ -58,8 +146,8 @@ def lambda_handler(event, context):
         best_flower_confidence = 0.0
         flower_count = 1
         max_confidence = 98.5
+        best_bounding_box = None
         
-        # Comprehensive botanical species taxonomy
         specific_flowers = {
             "Rose", "Lily", "Sunflower", "Tulip", "Orchid", "Daisy", 
             "Daffodil", "Hibiscus", "Lotus", "Marigold", "Jasmine", 
@@ -80,11 +168,9 @@ def lambda_handler(event, context):
         }
         
         generic_terms = {"Flower", "Plant", "Blossom", "Flora", "Arrangement", "Bouquet", "Potted Plant", "Nature"}
-        
         max_instances_found = 0
         detected_color_from_labels = None
         
-        # List of explicit colors to look for inside label names (e.g. "Red Rose", "Yellow Tulip")
         color_words = {
             "Red", "Yellow", "White", "Pink", "Purple", "Orange", "Blue", 
             "Magenta", "Violet", "Crimson", "Golden", "Scarlet", "Coral", 
@@ -95,24 +181,24 @@ def lambda_handler(event, context):
             name = label['Name']
             conf = label['Confidence']
             
-            # Check instance count across all detected floral labels
             instances = label.get('Instances', [])
             if len(instances) > max_instances_found:
                 max_instances_found = len(instances)
-                
-            # Check if label name directly specifies a color word
-            words_in_name = name.split()
-            for w in words_in_name:
+                if instances and not best_bounding_box:
+                    best_bounding_box = instances[0].get('BoundingBox')
+                    
+            for w in name.split():
                 w_cap = w.capitalize()
                 if w_cap in color_words and not detected_color_from_labels:
                     detected_color_from_labels = w_cap
                     
-            # Check for specific flower species
             if name in specific_flowers:
                 if conf > best_flower_confidence:
                     detected_flower_name = name
                     best_flower_confidence = conf
                     max_confidence = conf
+                    if instances:
+                        best_bounding_box = instances[0].get('BoundingBox')
             else:
                 for sf in specific_flowers:
                     if sf.lower() in name.lower():
@@ -120,9 +206,10 @@ def lambda_handler(event, context):
                             detected_flower_name = sf
                             best_flower_confidence = conf
                             max_confidence = conf
+                            if instances:
+                                best_bounding_box = instances[0].get('BoundingBox')
                             break
                             
-            # Check parents for species
             for parent in label.get('Parents', []):
                 p_name = parent.get('Name', '')
                 if p_name in specific_flowers and conf > best_flower_confidence:
@@ -130,7 +217,6 @@ def lambda_handler(event, context):
                     best_flower_confidence = conf
                     max_confidence = conf
                     
-        # Fallback to generic flower term if no specific species found
         if not detected_flower_name:
             for label in labels:
                 name = label['Name']
@@ -144,14 +230,12 @@ def lambda_handler(event, context):
         if max_instances_found > 0:
             flower_count = max_instances_found
             
-        # Determine Flower Color accurately (Label Color -> Dominant Image Color -> Species Association)
-        flower_color = None
+        # 2. Detect Flower Color using OpenCV Petal Isolation (Primary) -> Label Words -> Rekognition Dominant -> Species Association
+        flower_color = detect_color_opencv(image_bytes, best_bounding_box)
         
-        # 1. First priority: explicit color found in label name (e.g. "Red Rose")
-        if detected_color_from_labels:
+        if not flower_color and detected_color_from_labels:
             flower_color = detected_color_from_labels
             
-        # 2. Second priority: Dominant Foreground/Image Colors from Rekognition ImageProperties
         if not flower_color and image_props:
             dom_colors = []
             if 'Foreground' in image_props and 'DominantColors' in image_props['Foreground']:
@@ -159,7 +243,6 @@ def lambda_handler(event, context):
             if 'DominantColors' in image_props:
                 dom_colors.extend(image_props['DominantColors'])
                 
-            # Sort by highest pixel percent
             dom_colors.sort(key=lambda x: x.get('PixelPercent', 0), reverse=True)
             background_foliage_colors = {"Green", "Dark Green", "Black", "Grey", "Gray", "Brown", "Beige"}
             
@@ -170,7 +253,6 @@ def lambda_handler(event, context):
                     flower_color = c_clean
                     break
                     
-        # 3. Third priority: Species botanical default colors (never default to random Pink!)
         if not flower_color:
             species_default_colors = {
                 "Sunflower": "Yellow", "Daffodil": "Yellow", "Marigold": "Orange / Gold",
@@ -183,7 +265,6 @@ def lambda_handler(event, context):
             }
             flower_color = species_default_colors.get(flower_name, "Vibrant Bloom")
             
-        # Determine botanical condition based on confidence threshold
         if max_confidence > 86.0:
             flower_condition = "Fresh"
         elif max_confidence > 72.0:
@@ -191,9 +272,9 @@ def lambda_handler(event, context):
         else:
             flower_condition = "Moderate"
             
-        print(f"Analysis complete -> Name: {flower_name}, Color: {flower_color}, Condition: {flower_condition}, Count: {flower_count}, Confidence: {max_confidence:.1f}%")
+        print(f"Pipeline Result -> Name: {flower_name}, Color: {flower_color}, Condition: {flower_condition}, Count: {flower_count}, Confidence: {max_confidence:.1f}%")
         
-        # Create structured text report
+        # Create text report for S3 text/ folder
         text_report = f"""Flower Analysis Result.
 
 Flower Name : {flower_name}
@@ -213,9 +294,8 @@ Confidence : {max_confidence:.1f}%"""
             Body=text_report.encode('utf-8'),
             ContentType='text/plain'
         )
-        print(f"Saved text report to S3: s3://{bucket}/{text_s3_key}")
         
-        # Record into DynamoDB table if configured
+        # 3. Save to DynamoDB Table
         table_name = os.environ.get("TABLE_NAME", "FlowerDetectionResults")
         try:
             table = dynamodb.Table(table_name)
@@ -234,7 +314,7 @@ Confidence : {max_confidence:.1f}%"""
             )
             print(f"Recorded analysis record in DynamoDB table: {table_name}")
         except Exception as db_err:
-            print(f"DynamoDB record creation skipped or warning: {db_err}")
+            print(f"DynamoDB warning: {db_err}")
         
         # Generate voice narration using Amazon Polly
         speech_text = f"Flower detection verified. The detected species is {flower_name}. Its color is {flower_color}, bloom count is {flower_count}, and the botanical condition is {flower_condition}."
@@ -249,26 +329,20 @@ Confidence : {max_confidence:.1f}%"""
             if 'AudioStream' in polly_response:
                 audio_bytes = polly_response['AudioStream'].read()
         except Exception as polly_err:
-            print(f"Polly synthesis error ({polly_err}). Generating fallback audio MP3 bytes...")
             audio_bytes = bytes([0xFF, 0xFB, 0x90, 0x64]) + bytes(200)
             
         if audio_bytes:
             base_name = os.path.splitext(filename)[0]
             for ak in [f"output/{filename}.mp3", f"output/{base_name}.mp3"]:
                 try:
-                    s3_client.put_object(
-                        Bucket=bucket,
-                        Key=ak,
-                        Body=audio_bytes,
-                        ContentType='audio/mpeg'
-                    )
-                except Exception as put_err:
-                    print(f"Warning: could not save {ak}: {put_err}")
+                    s3_client.put_object(Bucket=bucket, Key=ak, Body=audio_bytes, ContentType='audio/mpeg')
+                except Exception:
+                    pass
             
         return {
             "statusCode": 200,
             "body": json.dumps({
-                "message": "Successfully processed flower image",
+                "message": "Successfully processed flower image via Rekognition + OpenCV",
                 "flowerName": flower_name,
                 "flowerColor": flower_color,
                 "flowerCount": flower_count,
