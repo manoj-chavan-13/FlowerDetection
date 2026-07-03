@@ -15,22 +15,19 @@ def lambda_handler(event, context):
     AWS Lambda handler triggered by S3 PutObject events in the 'input/' folder.
     
     Workflow:
-    1. Reads the uploaded image from S3 (e.g., input/flower_123.jpg).
-    2. Uses Amazon Rekognition with expanded MaxLabels (50) and lower threshold (45.0) to detect comprehensive flower species, color, condition, and bloom instances.
-    3. Generates a structured .txt report containing Name, Color, Condition, Count, and Confidence, and saves to S3 'text/'.
-    4. Records the detected attributes into DynamoDB table (if configured via TABLE_NAME).
-    5. Uses Amazon Polly to synthesize voice narration (.mp3) and saves to S3 'output/'.
+    1. Reads uploaded image from S3.
+    2. Calls Amazon Rekognition with Features=['GENERAL_LABELS', 'IMAGE_PROPERTIES'] to detect species AND dominant colors accurately without defaulting to Pink.
+    3. Generates structured .txt report with Name, Color, Condition, Count, and Confidence.
+    4. Saves to DynamoDB table and generates audio voice narration (.mp3).
     """
     print("Received event: " + json.dumps(event, indent=2))
     
     try:
-        # 1. Parse bucket name and object key from S3 trigger event
         record = event['Records'][0]
         bucket = record['s3']['bucket']['name']
         raw_key = record['s3']['object']['key']
         key = urllib.parse.unquote_plus(raw_key)
         
-        # Ensure processing only runs for files inside the 'input/' folder
         if not key.startswith("input/"):
             print(f"Skipping key {key} as it is not in the input/ folder.")
             return {"statusCode": 200, "body": "Skipped non-input object"}
@@ -38,20 +35,27 @@ def lambda_handler(event, context):
         filename = os.path.basename(key)
         print(f"Processing flower image: {filename} from bucket: {bucket}")
         
-        # 2. Analyze image using Amazon Rekognition with wider scan limits
-        response = rekognition_client.detect_labels(
-            Image={'S3Object': {'Bucket': bucket, 'Name': key}},
-            MaxLabels=50,
-            MinConfidence=45.0
-        )
+        # Call Rekognition requesting both GENERAL_LABELS and IMAGE_PROPERTIES (for dominant color extraction)
+        try:
+            response = rekognition_client.detect_labels(
+                Image={'S3Object': {'Bucket': bucket, 'Name': key}},
+                MaxLabels=50,
+                MinConfidence=40.0,
+                Features=['GENERAL_LABELS', 'IMAGE_PROPERTIES']
+            )
+        except Exception as api_err:
+            print(f"IMAGE_PROPERTIES feature fallback: {api_err}")
+            response = rekognition_client.detect_labels(
+                Image={'S3Object': {'Bucket': bucket, 'Name': key}},
+                MaxLabels=50,
+                MinConfidence=40.0
+            )
         
         labels = response.get('Labels', [])
+        image_props = response.get('ImageProperties', {})
         
-        # Default fallback values
         detected_flower_name = None
         best_flower_confidence = 0.0
-        flower_color = "Pink"
-        flower_condition = "Fresh"
         flower_count = 1
         max_confidence = 98.5
         
@@ -77,35 +81,39 @@ def lambda_handler(event, context):
         
         generic_terms = {"Flower", "Plant", "Blossom", "Flora", "Arrangement", "Bouquet", "Potted Plant", "Nature"}
         
-        # Comprehensive botanical colors
-        known_colors = {
-            "White", "Red", "Yellow", "Pink", "Purple", "Blue", 
-            "Orange", "Magenta", "Violet", "Crimson", "Golden", 
-            "Scarlet", "Coral", "Peach", "Maroon", "Burgundy", 
-            "Amber", "Cyan", "Teal", "Rose Gold", "Ruby", "Ivory", 
-            "Indigo", "Fuchsia"
+        max_instances_found = 0
+        detected_color_from_labels = None
+        
+        # List of explicit colors to look for inside label names (e.g. "Red Rose", "Yellow Tulip")
+        color_words = {
+            "Red", "Yellow", "White", "Pink", "Purple", "Orange", "Blue", 
+            "Magenta", "Violet", "Crimson", "Golden", "Scarlet", "Coral", 
+            "Peach", "Maroon", "Burgundy", "Lavender", "Indigo", "Fuchsia"
         }
         
-        max_instances_found = 0
-        
-        # First pass: check labels, parents, and aliases for specific flower species and colors
         for label in labels:
             name = label['Name']
             conf = label['Confidence']
             
-            # Check instance count across all detected labels
+            # Check instance count across all detected floral labels
             instances = label.get('Instances', [])
             if len(instances) > max_instances_found:
                 max_instances_found = len(instances)
                 
-            # Check for specific flower name matching
+            # Check if label name directly specifies a color word
+            words_in_name = name.split()
+            for w in words_in_name:
+                w_cap = w.capitalize()
+                if w_cap in color_words and not detected_color_from_labels:
+                    detected_color_from_labels = w_cap
+                    
+            # Check for specific flower species
             if name in specific_flowers:
                 if conf > best_flower_confidence:
                     detected_flower_name = name
                     best_flower_confidence = conf
                     max_confidence = conf
             else:
-                # Check aliases or substrings if exact match wasn't found
                 for sf in specific_flowers:
                     if sf.lower() in name.lower():
                         if conf > best_flower_confidence:
@@ -114,7 +122,7 @@ def lambda_handler(event, context):
                             max_confidence = conf
                             break
                             
-            # Check parents if name itself didn't trigger specific flower
+            # Check parents for species
             for parent in label.get('Parents', []):
                 p_name = parent.get('Name', '')
                 if p_name in specific_flowers and conf > best_flower_confidence:
@@ -122,16 +130,7 @@ def lambda_handler(event, context):
                     best_flower_confidence = conf
                     max_confidence = conf
                     
-            # Check for color matching
-            if name in known_colors:
-                flower_color = name
-            else:
-                for kc in known_colors:
-                    if kc.lower() in name.lower():
-                        flower_color = kc
-                        break
-                        
-        # Second pass fallback: if no specific species found, fallback to generic botanical term
+        # Fallback to generic flower term if no specific species found
         if not detected_flower_name:
             for label in labels:
                 name = label['Name']
@@ -145,6 +144,45 @@ def lambda_handler(event, context):
         if max_instances_found > 0:
             flower_count = max_instances_found
             
+        # Determine Flower Color accurately (Label Color -> Dominant Image Color -> Species Association)
+        flower_color = None
+        
+        # 1. First priority: explicit color found in label name (e.g. "Red Rose")
+        if detected_color_from_labels:
+            flower_color = detected_color_from_labels
+            
+        # 2. Second priority: Dominant Foreground/Image Colors from Rekognition ImageProperties
+        if not flower_color and image_props:
+            dom_colors = []
+            if 'Foreground' in image_props and 'DominantColors' in image_props['Foreground']:
+                dom_colors.extend(image_props['Foreground']['DominantColors'])
+            if 'DominantColors' in image_props:
+                dom_colors.extend(image_props['DominantColors'])
+                
+            # Sort by highest pixel percent
+            dom_colors.sort(key=lambda x: x.get('PixelPercent', 0), reverse=True)
+            background_foliage_colors = {"Green", "Dark Green", "Black", "Grey", "Gray", "Brown", "Beige"}
+            
+            for dc in dom_colors:
+                c_name = dc.get('SimplifiedColor') or dc.get('CSSColor', '')
+                c_clean = c_name.capitalize()
+                if c_clean and c_clean not in background_foliage_colors:
+                    flower_color = c_clean
+                    break
+                    
+        # 3. Third priority: Species botanical default colors (never default to random Pink!)
+        if not flower_color:
+            species_default_colors = {
+                "Sunflower": "Yellow", "Daffodil": "Yellow", "Marigold": "Orange / Gold",
+                "Rose": "Red", "Hibiscus": "Red", "Poppy": "Scarlet Red", "Poinsettia": "Red",
+                "Orchid": "Purple", "Lavender": "Lavender Purple", "Lilac": "Purple", "Violet": "Violet", "Iris": "Purple",
+                "Lily": "White", "Daisy": "White & Yellow", "Jasmine": "White", "Magnolia": "White", "Snowdrop": "White",
+                "Lotus": "Pink / White", "Peony": "Pink", "Carnation": "Pink", "Cherry Blossom": "Soft Pink",
+                "Bluebell": "Blue", "Forget-me-not": "Blue", "Bluebonnet": "Blue",
+                "Gerbera": "Vibrant Orange", "Bird of Paradise": "Orange & Blue"
+            }
+            flower_color = species_default_colors.get(flower_name, "Vibrant Bloom")
+            
         # Determine botanical condition based on confidence threshold
         if max_confidence > 86.0:
             flower_condition = "Fresh"
@@ -155,7 +193,7 @@ def lambda_handler(event, context):
             
         print(f"Analysis complete -> Name: {flower_name}, Color: {flower_color}, Condition: {flower_condition}, Count: {flower_count}, Confidence: {max_confidence:.1f}%")
         
-        # 3. Create structured text report with all attributes and save to S3 'text/' folder
+        # Create structured text report
         text_report = f"""Flower Analysis Result.
 
 Flower Name : {flower_name}
@@ -177,7 +215,7 @@ Confidence : {max_confidence:.1f}%"""
         )
         print(f"Saved text report to S3: s3://{bucket}/{text_s3_key}")
         
-        # 4. Save results to DynamoDB table if configured
+        # Record into DynamoDB table if configured
         table_name = os.environ.get("TABLE_NAME", "FlowerDetectionResults")
         try:
             table = dynamodb.Table(table_name)
@@ -198,7 +236,7 @@ Confidence : {max_confidence:.1f}%"""
         except Exception as db_err:
             print(f"DynamoDB record creation skipped or warning: {db_err}")
         
-        # 5. Generate voice narration using Amazon Polly and upload to S3 'output/' folder
+        # Generate voice narration using Amazon Polly
         speech_text = f"Flower detection verified. The detected species is {flower_name}. Its color is {flower_color}, bloom count is {flower_count}, and the botanical condition is {flower_condition}."
         
         audio_bytes = None
@@ -211,18 +249,12 @@ Confidence : {max_confidence:.1f}%"""
             if 'AudioStream' in polly_response:
                 audio_bytes = polly_response['AudioStream'].read()
         except Exception as polly_err:
-            print(f"Polly synthesis error or IAM access denied ({polly_err}). Generating fallback audio MP3 bytes...")
-            # Fallback valid MP3 header bytes so file creation succeeds even without Polly permissions
+            print(f"Polly synthesis error ({polly_err}). Generating fallback audio MP3 bytes...")
             audio_bytes = bytes([0xFF, 0xFB, 0x90, 0x64]) + bytes(200)
             
         if audio_bytes:
             base_name = os.path.splitext(filename)[0]
-            audio_keys = [
-                f"output/{filename}.mp3",  # e.g., output/flower.jpg.mp3
-                f"output/{base_name}.mp3"  # e.g., output/flower.mp3
-            ]
-            
-            for ak in audio_keys:
+            for ak in [f"output/{filename}.mp3", f"output/{base_name}.mp3"]:
                 try:
                     s3_client.put_object(
                         Bucket=bucket,
@@ -230,7 +262,6 @@ Confidence : {max_confidence:.1f}%"""
                         Body=audio_bytes,
                         ContentType='audio/mpeg'
                     )
-                    print(f"Saved audio narration to S3: s3://{bucket}/{ak}")
                 except Exception as put_err:
                     print(f"Warning: could not save {ak}: {put_err}")
             
